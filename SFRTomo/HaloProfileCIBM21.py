@@ -82,7 +82,6 @@ class HaloProfileCIBM21(HaloProfile):
         if not isinstance(c_M_relation, Concentration):
             raise TypeError("c_M_relation must be of type `Concentration`)")
             
-        self.nM = MassFuncTinker10(cosmo)
         self.Omega_b = cosmo['Omega_b']
         self.Omega_m = cosmo['Omega_c'] + cosmo['Omega_b']
         self.Omega_L = cosmo['Omega_k']
@@ -134,12 +133,17 @@ class HaloProfileCIBM21(HaloProfile):
         if Mmin is not None:
             self.Mmin = Mmin
 
-    def sigLM(M, a):
+    def sigLM(self, M, a):
+        sig = []
         z = 1/a - 1
-        if np.log10(M) < self.l10meff:
-            return self.sigLM0
-        else :
-            return self.sigLM0 - self.tau * max(0, self.zc-z)
+        if np.size(M) == 1:
+            M = [M]
+        for Mass in M:
+            if np.log10(Mass) < self.l10meff:
+                sig.append(self.sigLM0)
+            else :
+                sig.append(self.sigLM0 - self.tau * max(0, self.zc-z))
+        return sig
     
     def _SFR(self, M, a):
         z = 1/a - 1
@@ -150,38 +154,35 @@ class HaloProfileCIBM21(HaloProfile):
         BAR = self.Omega_b/self.Omega_m * MGR
         return eta * BAR
 
-    def _SFRDcen(self, M, a):
-        SFR = self._SFR(M, a)
-        integ = self.nM*SFR
-        SFRDcen = simps(integ, x=np.log(M))
-        return SFRDcen
+    def _SFRcen(self, M, a):
+        SFRcen = self._SFR(M, a)
+        return SFRcen
 
-    def _SFRDsat(self, M, a):
-        SFRDsat = np.zeros_like(M)
-        # Loop over Mparent
-        for iM, Mparent in enumerate(M):
-            if Mparent > self.Mmin:
-                # Array of Msubs (log-spaced with 10 samples per dex)
-                nm = max(2, int(np.log10(Mparent/1E10)*10))
-                msub = np.geomspace(1E10, Mparent, nm+1)
-                # Sample integrand
-                dnsubdlnm = self.dNsub_dlnM_TinkerWetzel10(msub, Mparent)
-                SFR = self._SFR(msub, a)
-                integ = dnsubdlnm*SFR
-                SFRDsat[iM] = simps(integ, x=np.log(msub))
-        return SFRDsat
+    def _SFRsat(self, M, a):
+        SFRsat = np.zeros_like(M)
+        for iM, Mhalo in enumerate(M):
+            if Mhalo > self.Mmin:
+                nm = max(2, int(np.log10(Mhalo/1E10)*10))
+                Msub = np.geomspace(1E10, Mhalo, nm+1)
+                dnsubdlnm = self.dNsub_dlnM_TinkerWetzel10(Msub, Mhalo)
+                SFRsub = self._SFR(Msub, a)
+                SFRh = self._SFR(Mhalo, a)
+                # Need to choose the minimum of two cases
+                SFRsub = np.minimum(SFRh*(Msub/Mhalo),SFRsub)
+                integ = dnsubdlnm*SFRsub
+                SFRsat[iM] = simps(integ, x=np.log(Msub))
+        return SFRsat
 
     def _fourier(self, cosmo, k, M, a, mass_def):
         M_use = np.atleast_1d(M)
         k_use = np.atleast_1d(k)
 
-        SFRDc = self._SFRDcen(M_use, a)
-        SFRDs = self._SFRDsat(M_use, a)
+        SFRc = self._SFRcen(M_use, a)
+        SFRs = self._SFRsat(M_use, a)
         uk = self.pNFW._fourier(cosmo, k_use, M_use,
                                 a, mass_def)/M_use[:, None]
-
-        prof = SFRDc[:, None]+SFRDs[:, None]*uk
-
+        prof = SFRc[:, None]+SFRs[:, None]*uk
+        
         if np.ndim(k) == 0:
             prof = np.squeeze(prof, axis=-1)
         if np.ndim(M) == 0:
@@ -192,13 +193,13 @@ class HaloProfileCIBM21(HaloProfile):
         M_use = np.atleast_1d(M)
         k_use = np.atleast_1d(k)
         
-        SFRDc = self._SFRdcen(M_use, a)
-        SFRDs = self._SFRDsat(M_use, a)
+        SFRc = self._SFRcen(M_use, a)
+        SFRs = self._SFRsat(M_use, a)
         uk = self.pNFW._fourier(cosmo, k_use, M_use,
                                 a, mass_def)/M_use[:, None]
 
-        prof = SFRDs[:, None]*uk
-        prof = 2*SFRDc[:, None]*prof + prof**2
+        prof = SFRs[:, None]*uk
+        prof = 2*SFRc[:, None]*prof + prof**2
 
         if np.ndim(k) == 0:
             prof = np.squeeze(prof, axis=-1)
@@ -227,7 +228,7 @@ class Profile2ptCIB(Profile2pt):
             k (float or array_like): comoving wavenumber in Mpc^-1.
             M (float or array_like): halo mass in units of M_sun.
             a (float): scale factor.
-            prof2 (:class:`HaloProfileCIBShang12`):
+            prof2 (:class:`HaloProfileCIBM21`):
                 second halo profile for which the second-order moment
                 is desired. If `None`, the assumption is that you want
                 an auto-correlation. Note that only auto-correlations
@@ -242,9 +243,9 @@ class Profile2ptCIB(Profile2pt):
             respectively. If `k` or `M` are scalars, the
             corresponding dimension will be squeezed out on output.
         """
-        if not isinstance(prof, HaloProfileCIBShang12):
-            raise TypeError("prof must be of type `HaloProfileCIB`")
+        if not isinstance(prof, HaloProfileCIBM21):
+            raise TypeError("prof must be of type `HaloProfileCIBM21`")
         if prof2 is not None:
-            if not isinstance(prof2, HaloProfileCIBShang12):
-                raise TypeError("prof must be of type `HaloProfileCIB`")
+            if not isinstance(prof2, HaloProfileCIBM21):
+                raise TypeError("prof must be of type `HaloProfileCIBM21`")
         return prof._fourier_variance(cosmo, k, M, a, mass_def)
