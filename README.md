@@ -7,5 +7,5 @@ The implementation of a CIB profile using the Maniyar et al. 2021 (A&A 645, A40 
 The creation of a CIB intensity tracer corresponding to the star formation rate.
 ---
 # Documentation
-Documentation about the profiles_cib module can be found here: https://ccl.readthedocs.io/en/latest/api/pyccl.halos.profiles_cib.html
+Documentation about the profiles_cib module can be found here: https://ccl.readthedocs.io/en/latest/api/pyccl.halos.profiles_cib.html \n
 Documentation about the tracers module can be found here: https://ccl.readthedocs.io/en/latest/api/pyccl.tracers.html
