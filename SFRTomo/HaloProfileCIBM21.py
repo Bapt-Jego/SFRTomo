@@ -221,7 +221,7 @@ class Profile2ptCIB(Profile2pt):
         profile.
 
         Args:
-            prof (:class:`HaloProfileCIBShang12`):
+            prof (:class:`HaloProfileCIBM21`):
                 halo profile for which the second-order moment
                 is desired.
             cosmo (:class:`~pyccl.core.Cosmology`): a Cosmology object.
