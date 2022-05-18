@@ -78,7 +78,7 @@ class HaloProfileCIBM21(HaloProfile):
     name = 'CIBM21'
 
     def __init__(self, cosmo, c_M_relation, log10meff=12.7, etamax=0.42,
-                 sigLM0=1.75, tau=1.17, zc=1.5, Mmin=1E10):
+                 sigLM0=1.75, tau=1.17, zc=1.5, Mmin=1E5):
         if not isinstance(c_M_relation, Concentration):
             raise TypeError("c_M_relation must be of type `Concentration`)")
             
