@@ -118,7 +118,7 @@ class HaloProfileCIBM21(HaloProfile):
             sigLM0 (float): logarithmic scatter in mass.
             tau (float) : rate at which :math:'\\sigma_{LM}' evolves with redshift.
             zc (float) : redshift below which :math:'\\sigma_{LM}' evolves with redshift.
-            Mmin (float): minimum subhalo mass.
+            Mmin (float): minimum subhalo mass (in solar masses).
         """
         if log10meff is not None:
             self.l10meff = log10meff
@@ -134,21 +134,25 @@ class HaloProfileCIBM21(HaloProfile):
             self.Mmin = Mmin
 
     def sigLM(self, M, a):
-        sig = []
         z = 1/a - 1
-        if np.size(M) == 1:
-            M = [M]
-        for Mass in M:
-            if np.log10(Mass) < self.l10meff:
-                sig.append(self.sigLM0)
+        if hasattr(M, "__len__"):
+            sig = np.zeros_like(M)
+            for iM, Mhalo in enumerate(M):
+                if np.log10(Mhalo) < self.l10meff:
+                    sig[iM] = self.sigLM0
+                else :
+                    sig[iM] = self.sigLM0 - self.tau * max(0, self.zc-z)
+            return sig
+        else:
+            if np.log10(M) < self.l10meff:
+                return self.sigLM0
             else :
-                sig.append(self.sigLM0 - self.tau * max(0, self.zc-z))
-        return sig
-    
+                return self.sigLM0 - self.tau * max(0, self.zc-z)
+
     def _SFR(self, M, a):
         z = 1/a - 1
         # Efficiency - eta
-        eta = self.etamax * np.exp(-0.5((np.log10(M) - self.l10meff)/self.sigLM(M, a))**2)
+        eta = self.etamax * np.exp(-0.5*((np.log10(M) - self.l10meff)/self.sigLM(M, a))**2)
         # Baryonic Accretion Rate - BAR
         MGR = 46.1 * (M/1e12)**1.1 * (1+1.11*z) * np.sqrt(self.Omega_m*(1+z)**3 + self.Omega_L)
         BAR = self.Omega_b/self.Omega_m * MGR
@@ -159,20 +163,37 @@ class HaloProfileCIBM21(HaloProfile):
         return SFRcen
 
     def _SFRsat(self, M, a):
+        fsub = 0.134
         SFRsat = np.zeros_like(M)
         for iM, Mhalo in enumerate(M):
             if Mhalo > self.Mmin:
-                nm = max(2, int(np.log10(Mhalo/1E10)*10))
-                Msub = np.geomspace(1E10, Mhalo, nm+1)
+                nm = max(2, int(np.log10(Mhalo/self.Mmin)*10))
+                Mhalo = Mhalo*(1-fsub)
+                Msub = np.geomspace(self.Mmin, Mhalo, nm+1)
                 dnsubdlnm = self.dNsub_dlnM_TinkerWetzel10(Msub, Mhalo)
-                SFRsub = self._SFR(Msub, a)
-                SFRh = self._SFR(Mhalo, a)
-                # Need to choose the minimum of two cases
-                SFRsub = np.minimum(SFRh*(Msub/Mhalo),SFRsub)
+                SFRI = self._SFR(Msub, a)
+                SFRII = self._SFR(Mhalo, a)*(Msub/Mhalo)
+                SFRsub = np.minimum(SFRI,SFRII)
                 integ = dnsubdlnm*SFRsub
                 SFRsat[iM] = simps(integ, x=np.log(Msub))
         return SFRsat
+    
+    def _real(self, cosmo, r, M, a, mass_def):
+        M_use = np.atleast_1d(M)
+        r_use = np.atleast_1d(r)
 
+        SFRs = self._SFRsat(M_use, a)
+        ur = self.pNFW._real(cosmo, r_use, M_use,
+                             a, mass_def)/M_use[:, None]
+
+        prof = SFRs[:, None]*ur
+        
+        if np.ndim(r) == 0:
+            prof = np.squeeze(prof, axis=-1)
+        if np.ndim(M) == 0:
+            prof = np.squeeze(prof, axis=0)
+        return prof
+    
     def _fourier(self, cosmo, k, M, a, mass_def):
         M_use = np.atleast_1d(M)
         k_use = np.atleast_1d(k)
@@ -208,7 +229,7 @@ class HaloProfileCIBM21(HaloProfile):
         return prof
 
 
-class Profile2ptCIB(Profile2pt):
+class Profile2ptCIBM21(Profile2pt):
     """ This class implements the Fourier-space 1-halo 2-point
     correlator for the CIB profile. It follows closely the
     implementation of the equivalent HOD quantity
@@ -244,8 +265,8 @@ class Profile2ptCIB(Profile2pt):
             corresponding dimension will be squeezed out on output.
         """
         if not isinstance(prof, HaloProfileCIBM21):
-            raise TypeError("prof must be of type `HaloProfileCIBM21`")
+            raise TypeError("prof must be of type `HaloProfileCIB`")
         if prof2 is not None:
             if not isinstance(prof2, HaloProfileCIBM21):
-                raise TypeError("prof must be of type `HaloProfileCIBM21`")
+                raise TypeError("prof must be of type `HaloProfileCIB`")
         return prof._fourier_variance(cosmo, k, M, a, mass_def)
