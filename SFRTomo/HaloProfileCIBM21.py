@@ -84,7 +84,7 @@ class HaloProfileCIBM21(HaloProfile):
             
         self.Omega_b = cosmo['Omega_b']
         self.Omega_m = cosmo['Omega_c'] + cosmo['Omega_b']
-        self.Omega_L = cosmo['Omega_k']
+        self.Omega_L = 1 - cosmo['Omega_m']
         self.l10meff = log10meff
         self.etamax = etamax
         self.sigLM0 = sigLM0
@@ -137,11 +137,9 @@ class HaloProfileCIBM21(HaloProfile):
         z = 1/a - 1
         if hasattr(M, "__len__"):
             sig = np.zeros_like(M)
-            for iM, Mhalo in enumerate(M):
-                if np.log10(Mhalo) < self.l10meff:
-                    sig[iM] = self.sigLM0
-                else :
-                    sig[iM] = self.sigLM0 - self.tau * max(0, self.zc-z)
+            smallM = np.log10(M) < self.l10meff
+            sig[smallM] = self.sigLM0
+            sig[~smallM] = self.sigLM0 - self.tau * max(0, self.zc-z)
             return sig
         else:
             if np.log10(M) < self.l10meff:
@@ -152,7 +150,7 @@ class HaloProfileCIBM21(HaloProfile):
     def _SFR(self, M, a):
         z = 1/a - 1
         # Efficiency - eta
-        eta = self.etamax * np.exp(-0.5*((np.log10(M) - self.l10meff)/self.sigLM(M, a))**2)
+        eta = self.etamax * np.exp(-0.5*((np.log(M) - np.log(10)*self.l10meff)/self.sigLM(M, a))**2)
         # Baryonic Accretion Rate - BAR
         MGR = 46.1 * (M/1e12)**1.1 * (1+1.11*z) * np.sqrt(self.Omega_m*(1+z)**3 + self.Omega_L)
         BAR = self.Omega_b/self.Omega_m * MGR
