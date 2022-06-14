@@ -157,23 +157,26 @@ class HaloProfileCIBM21(HaloProfile):
         return eta * BAR
 
     def _SFRcen(self, M, a):
+        fsub = 0.134
+        M = M*(1-fsub)
         SFRcen = self._SFR(M, a)
         return SFRcen
 
     def _SFRsat(self, M, a):
         fsub = 0.134
         SFRsat = np.zeros_like(M)
-        for iM, Mhalo in enumerate(M):
-            if Mhalo > self.Mmin:
-                nm = max(2, int(np.log10(Mhalo/self.Mmin)*10))
-                Mhalo = Mhalo*(1-fsub)
-                Msub = np.geomspace(self.Mmin, Mhalo, nm+1)
-                dnsubdlnm = self.dNsub_dlnM_TinkerWetzel10(Msub, Mhalo)
-                SFRI = self._SFR(Msub, a)
-                SFRII = self._SFR(Mhalo, a)*(Msub/Mhalo)
-                SFRsub = np.minimum(SFRI,SFRII)
-                integ = dnsubdlnm*SFRsub
-                SFRsat[iM] = simps(integ, x=np.log(Msub))
+        goodM = M >= self.Mmin
+        M_use = (1-fsub)*M[goodM, None]
+        nm = max(2, 3*int(np.log10(np.max(M_use)/self.Mmin)))
+        Msub = np.geomspace(self.Mmin, np.max(M_use), nm+1)[None, :]
+        # All these arrays are of shape [nM_parent, nM_sub]                                                                                                                                                    
+        dnsubdlnm = self.dNsub_dlnM_TinkerWetzel10(Msub, M_use)
+        SFRI = self._SFR(Msub.flatten(), a)[None, :]
+        SFRII = self._SFR(M_use, a)*Msub/M_use
+        Ismall = SFRI < SFRII
+        SFR = SFRI*Ismall + SFRII*(~Ismall)                                                                                                                                                                    
+        integ = dnsubdlnm*SFR*(M_use >= Msub)
+        SFRsat[goodM] = simps(integ, x=np.log(Msub))
         return SFRsat
     
     def _real(self, cosmo, r, M, a, mass_def):
@@ -194,12 +197,12 @@ class HaloProfileCIBM21(HaloProfile):
     
     def _fourier(self, cosmo, k, M, a, mass_def):
         M_use = np.atleast_1d(M)
-        k_use = np.atleast_1d(k)
+        # k_use = np.atleast_1d(k)
 
         SFRc = self._SFRcen(M_use, a)
         SFRs = self._SFRsat(M_use, a)
-        uk = self.pNFW._fourier(cosmo, k_use, M_use,
-                                a, mass_def)/M_use[:, None]
+        uk = 1 # self.pNFW._fourier(cosmo, k_use, M_use,
+               #                  a, mass_def)/M_use[:, None]
         prof = SFRc[:, None]+SFRs[:, None]*uk
         
         if np.ndim(k) == 0:
@@ -210,12 +213,12 @@ class HaloProfileCIBM21(HaloProfile):
 
     def _fourier_variance(self, cosmo, k, M, a, mass_def):
         M_use = np.atleast_1d(M)
-        k_use = np.atleast_1d(k)
+        # k_use = np.atleast_1d(k)
         
         SFRc = self._SFRcen(M_use, a)
         SFRs = self._SFRsat(M_use, a)
-        uk = self.pNFW._fourier(cosmo, k_use, M_use,
-                                a, mass_def)/M_use[:, None]
+        uk = 1 # self.pNFW._fourier(cosmo, k_use, M_use,
+               #                  a, mass_def)/M_use[:, None]
 
         prof = SFRs[:, None]*uk
         prof = 2*SFRc[:, None]*prof + prof**2
