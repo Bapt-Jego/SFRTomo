@@ -77,14 +77,11 @@ class HaloProfileCIBM21(HaloProfile):
     """
     name = 'CIBM21'
 
-    def __init__(self, cosmo, c_M_relation, log10meff=12.7, etamax=0.42,
+    def __init__(self, c_M_relation, log10meff=12.7, etamax=0.42,
                  sigLM0=1.75, tau=1.17, zc=1.5, Mmin=1E5):
         if not isinstance(c_M_relation, Concentration):
             raise TypeError("c_M_relation must be of type `Concentration`)")
-            
-        self.Omega_b = cosmo['Omega_b']
-        self.Omega_m = cosmo['Omega_c'] + cosmo['Omega_b']
-        self.Omega_L = 1 - cosmo['Omega_m']
+
         self.l10meff = log10meff
         self.etamax = etamax
         self.sigLM0 = sigLM0
@@ -147,45 +144,48 @@ class HaloProfileCIBM21(HaloProfile):
             else :
                 return self.sigLM0 - self.tau * max(0, self.zc-z)
 
-    def _SFR(self, M, a):
+    def _SFR(self, cosmo, M, a):
+        Omega_b = cosmo['Omega_b']
+        Omega_m = cosmo['Omega_c'] + cosmo['Omega_b']
+        Omega_L = 1 - cosmo['Omega_m']
         z = 1/a - 1
         # Efficiency - eta
         eta = self.etamax * np.exp(-0.5*((np.log(M) - np.log(10)*self.l10meff)/self.sigLM(M, a))**2)
         # Baryonic Accretion Rate - BAR
-        MGR = 46.1 * (M/1e12)**1.1 * (1+1.11*z) * np.sqrt(self.Omega_m*(1+z)**3 + self.Omega_L)
-        BAR = self.Omega_b/self.Omega_m * MGR
+        MGR = 46.1 * (M/1e12)**1.1 * (1+1.11*z) * np.sqrt(Omega_m*(1+z)**3 + Omega_L)
+        BAR = Omega_b/Omega_m * MGR
         return eta * BAR
 
-    def _SFRcen(self, M, a):
+    def _SFRcen(self, cosmo, M, a):
         fsub = 0.134
         M = M*(1-fsub)
-        SFRcen = self._SFR(M, a)
+        SFRcen = self._SFR(cosmo, M, a)
         return SFRcen
 
-    def _SFRsat(self, M, a):
+    def _SFRsat(self, cosmo, M, a):
         fsub = 0.134
         SFRsat = np.zeros_like(M)
         goodM = M >= self.Mmin
         M_use = (1-fsub)*M[goodM, None]
         nm = max(2, 3*int(np.log10(np.max(M_use)/self.Mmin)))
         Msub = np.geomspace(self.Mmin, np.max(M_use), nm+1)[None, :]
-        # All these arrays are of shape [nM_parent, nM_sub]                                                                                                                                                    
+        # All these arrays are of shape [nM_parent, nM_sub]
+
         dnsubdlnm = self.dNsub_dlnM_TinkerWetzel10(Msub, M_use)
-        SFRI = self._SFR(Msub.flatten(), a)[None, :]
-        SFRII = self._SFR(M_use, a)*Msub/M_use
+        SFRI = self._SFR(cosmo, Msub.flatten(), a)[None, :]
+        SFRII = self._SFR(cosmo, M_use, a)*Msub/M_use
         Ismall = SFRI < SFRII
-        SFR = SFRI*Ismall + SFRII*(~Ismall)                                                                                                                                                                    
+        SFR = SFRI*Ismall + SFRII*(~Ismall)
+
         integ = dnsubdlnm*SFR*(M_use >= Msub)
         SFRsat[goodM] = simps(integ, x=np.log(Msub))
         return SFRsat
     
     def _real(self, cosmo, r, M, a, mass_def):
         M_use = np.atleast_1d(M)
-        r_use = np.atleast_1d(r)
 
-        SFRs = self._SFRsat(M_use, a)
-        ur = self.pNFW._real(cosmo, r_use, M_use,
-                             a, mass_def)/M_use[:, None]
+        SFRs = self._SFRsat(cosmo, M_use, a)
+        ur = 1
 
         prof = SFRs[:, None]*ur
         
@@ -197,12 +197,10 @@ class HaloProfileCIBM21(HaloProfile):
     
     def _fourier(self, cosmo, k, M, a, mass_def):
         M_use = np.atleast_1d(M)
-        # k_use = np.atleast_1d(k)
 
         SFRc = self._SFRcen(M_use, a)
         SFRs = self._SFRsat(M_use, a)
-        uk = 1 # self.pNFW._fourier(cosmo, k_use, M_use,
-               #                  a, mass_def)/M_use[:, None]
+        uk = 1
         prof = SFRc[:, None]+SFRs[:, None]*uk
         
         if np.ndim(k) == 0:
@@ -213,12 +211,10 @@ class HaloProfileCIBM21(HaloProfile):
 
     def _fourier_variance(self, cosmo, k, M, a, mass_def):
         M_use = np.atleast_1d(M)
-        # k_use = np.atleast_1d(k)
         
         SFRc = self._SFRcen(M_use, a)
         SFRs = self._SFRsat(M_use, a)
-        uk = 1 # self.pNFW._fourier(cosmo, k_use, M_use,
-               #                  a, mass_def)/M_use[:, None]
+        uk = 1
 
         prof = SFRs[:, None]*uk
         prof = 2*SFRc[:, None]*prof + prof**2
